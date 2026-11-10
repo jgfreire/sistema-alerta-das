@@ -17,5 +17,7 @@ Compara o valor total do DAS (Simples Nacional) de dois meses para **vários cli
 
 ## Iniciar
 1. Copie `server/.env.example` para `server/.env` e preencha (use `npm run hash-password -- "senha"` dentro de `server/`).
+   - **Login:** só é exigido com `REQUIRE_LOGIN=true` no `.env`. Sem essa linha o sistema entra direto como administrador e só aceita conexões do próprio computador.
+   - O administrador entra com `ADMIN_USERNAME`, a senha cujo hash está em `ADMIN_PASSWORD_HASH` e a `ADMIN_ACCESS_KEY` (campo "Chave de administrador"). Colaboradores são criados no painel e entram só com usuário e senha.
 2. Em `server/`: `npm install` e `npm start`, ou use `Iniciar Alerta DAS.bat`.
 3. Acesse `http://localhost:3200` no Chrome.
