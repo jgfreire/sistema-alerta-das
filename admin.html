@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Painel Administrativo — Alerta DAS</title>
+<link rel="stylesheet" href="css/app.css">
+<link rel="stylesheet" href="css/admin.css">
+</head>
+<body>
+<div id="admin-app">
+  <header>
+    <div class="title-block">
+      <h1>Painel Administrativo</h1>
+      <p>Alerta DAS</p>
+    </div>
+    <div class="actions">
+      <a class="btn" href="/">Alerta DAS em tela cheia</a>
+      <span class="session-user" id="session-user"></span>
+      <button class="btn" id="logout-btn">Sair</button>
+    </div>
+  </header>
+
+  <div class="admin-layout">
+    <nav class="admin-nav">
+      <button class="admin-nav-item active" data-tab="alerta">Alerta DAS</button>
+      <button class="admin-nav-item" data-tab="dashboard">Dashboard</button>
+      <button class="admin-nav-item" data-tab="usuarios">Usuários</button>
+      <button class="admin-nav-item" data-tab="memoria">Memória DAS</button>
+      <button class="admin-nav-item" data-tab="configuracoes">Configurações</button>
+      <button class="admin-nav-item" data-tab="logs">Logs</button>
+    </nav>
+
+    <main class="admin-content">
+      <section id="tab-alerta" class="admin-tab active">
+        <h2>Alerta DAS</h2>
+        <!-- Mesma tela que os colaboradores usam, dentro do painel: o administrador tem todas as funções. -->
+        <iframe id="alerta-frame" class="alerta-frame" title="Alerta DAS"></iframe>
+      </section>
+
+      <section id="tab-dashboard" class="admin-tab">
+        <h2>Dashboard</h2>
+        <div id="dashboard-content" class="admin-panel">Carregando…</div>
+      </section>
+
+      <section id="tab-usuarios" class="admin-tab">
+        <h2>Usuários</h2>
+        <div class="admin-panel">
+          <form id="new-user-form" class="inline-form">
+            <input type="text" id="new-username" placeholder="Novo usuário" required>
+            <input type="password" id="new-password" placeholder="Senha (mín. 6 caracteres)" required>
+            <select id="new-role">
+              <option value="COLLABORATOR">Colaborador</option>
+              <option value="ADMIN">Administrador</option>
+            </select>
+            <button type="submit" class="btn btn-primary">Criar usuário</button>
+          </form>
+          <div id="user-form-error" class="alert alert-error hidden"></div>
+          <div id="users-table-area"></div>
+        </div>
+      </section>
+
+      <section id="tab-memoria" class="admin-tab">
+        <h2>Memória do Alerta DAS</h2>
+        <div class="admin-panel">
+          <p class="empty-note" style="margin-top:0">Para cada cliente, o sistema guarda o mês mais recente e o anterior. Quando entra um mês novo, o mais antigo é descartado. Apagar um cliente aqui faz o sistema esquecê-lo (útil se um DAS foi retificado).</p>
+          <div id="memoria-content">Carregando…</div>
+        </div>
+      </section>
+
+      <section id="tab-configuracoes" class="admin-tab">
+        <h2>Configurações</h2>
+        <div id="settings-content" class="admin-panel">Carregando…</div>
+      </section>
+
+      <section id="tab-logs" class="admin-tab">
+        <h2>Logs</h2>
+        <div id="logs-content" class="admin-panel">Carregando…</div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<script src="js/utils.js"></script>
+<script src="js/authGuard.js"></script>
+<script src="js/admin.js"></script>
+</body>
+</html>

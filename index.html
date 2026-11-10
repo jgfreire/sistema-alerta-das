@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Alerta DAS</title>
+<script>if (/[?&]embed=1(&|$)/.test(location.search)) document.documentElement.classList.add("embed");</script>
+<link rel="stylesheet" href="css/app.css">
+<style>
+  html.embed header { display: none; }
+  html.embed body { background: transparent; }
+  .batch-drop { border: 2px dashed #9aa5b1; border-radius: 10px; padding: 32px 20px; text-align: center; cursor: pointer; display: block; }
+  .batch-drop:hover, .batch-drop.over { background: #f1f5f9; border-color: #475569; }
+  .batch-drop strong { display: block; font-size: 1.1rem; margin-bottom: 4px; }
+  .progress { height: 10px; background: #e5e7eb; border-radius: 5px; overflow: hidden; margin: 12px 0 4px; }
+  .progress > div { height: 100%; width: 0; background: #2f6f4f; transition: width .1s; }
+  .summary { display: flex; gap: 10px; flex-wrap: wrap; margin: 0 0 16px; }
+  .chip { border-radius: 8px; padding: 10px 16px; font-weight: 700; }
+  .chip small { display: block; font-weight: 400; }
+  .chip.verde { background: #c6efce; color: #006100; }
+  .chip.amarelo { background: #ffeb9c; color: #7a5b00; }
+  .chip.vermelho { background: #ffc7ce; color: #9c0006; }
+  .chip.cinza { background: #e5e7eb; color: #374151; }
+  .scroll { max-height: 420px; overflow: auto; margin-bottom: 16px; }
+  table.das-result { width: 100%; border-collapse: collapse; }
+  table.das-result th, table.das-result td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; font-size: .92rem; }
+  table.das-result th { position: sticky; top: 0; background: #f3f4f6; }
+  table.das-result td.num { text-align: right; white-space: nowrap; }
+  td.lvl { font-weight: 700; white-space: nowrap; }
+  td.lvl.verde { background: #c6efce; color: #006100; }
+  td.lvl.amarelo { background: #ffeb9c; color: #7a5b00; }
+  td.lvl.vermelho { background: #ffc7ce; color: #9c0006; }
+  .alert-ok { background: #e7f5ec; color: #1e5a38; border: 1px solid #b7dfc6; border-radius: 6px; padding: 10px 14px; margin-bottom: 12px; }
+  .file-list { max-height: 160px; overflow: auto; font-size: .88rem; margin-top: 10px; }
+  .file-list .bad { color: #9c0006; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="title-block">
+      <h1>ALERTA DAS</h1>
+      <p>Compara o valor total do DAS (Simples Nacional) de dois meses para vários clientes de uma vez, guardando o último mês na memória</p>
+    </div>
+    <div class="actions">
+      <a class="btn hidden" id="admin-link" href="/admin">Painel administrativo</a>
+      <span class="session-user" id="session-user"></span>
+      <button class="btn" id="logout-btn">Sair</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="upload-screen">
+      <label class="batch-drop" id="drop" for="input-files">
+        <strong>Arraste aqui os PDFs dos DAS e os relatórios de faturamento (Acompanhamento de Serviços) ou clique para selecionar</strong>
+        <span>Pode enviar todos de uma vez, 100 clientes ou mais. O sistema agrupa pelo CNPJ e compara os dois meses mais recentes de cada cliente. O faturamento é lido do relatório do mesmo mês; sem relatório, fica em branco. Depois da primeira vez, envie só o mês novo: o mês anterior fica guardado na memória.</span>
+      </label>
+      <input type="file" id="input-files" accept=".pdf" multiple hidden>
+
+      <div id="progress-area" class="hidden">
+        <div class="progress"><div id="progress-bar"></div></div>
+        <p id="progress-text" class="slot-status"></p>
+      </div>
+      <p id="files-summary" class="slot-status">Nenhum arquivo selecionado</p>
+      <div id="file-list" class="file-list"></div>
+
+      <div id="errors"></div>
+
+      <div class="actions-row">
+        <button class="btn btn-primary" id="btn-analisar" disabled>ANALISAR</button>
+        <button class="btn" id="btn-limpar">Limpar lista</button>
+      </div>
+    </section>
+
+    <section id="result-screen" class="hidden">
+      <div id="result-content"></div>
+      <div id="download-error"></div>
+      <div class="actions-row">
+        <button class="btn btn-primary" id="btn-baixar">BAIXAR PLANILHA EXCEL</button>
+        <button class="btn" id="btn-novo">Nova análise</button>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+  if (window.pdfjsLib) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  }
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/authGuard.js"></script>
+<script src="js/das.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
