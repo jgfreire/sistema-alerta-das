@@ -10,11 +10,16 @@ const router = express.Router();
 
 const CNPJ_RE = /^\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}$/;
 
+// Faturamento é opcional (sem relatório = null), mas se vier tem que ser número >= 0.
+function fatValido(v) {
+  return v == null || (typeof v === "number" && Number.isFinite(v) && v >= 0);
+}
+
 function mesValido(m) {
   return m && Number.isInteger(m.ano) && m.ano >= 2000 && m.ano <= 2100 &&
     Number.isInteger(m.mes) && m.mes >= 1 && m.mes <= 12 &&
     typeof m.valor === "number" && Number.isFinite(m.valor) && m.valor >= 0 &&
-    (m.faturamento == null || (typeof m.faturamento === "number" && Number.isFinite(m.faturamento) && m.faturamento >= 0));
+    fatValido(m.fatServicos) && fatValido(m.fatSaidas);
 }
 
 function entradaValida(e) {

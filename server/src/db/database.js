@@ -82,10 +82,14 @@ if (usersSchema && usersSchema.sql.includes("CHECK(role IN ('COLLABORATOR'))")) 
   `);
 }
 
-// Migração: faturamento de cada mês guardado na memória (colunas novas; vazio = sem relatório).
+// Migração: faturamento de cada mês guardado na memória, separado por fonte (serviços e saídas/vendas);
+// vazio = sem relatório. As colunas antigas *_faturamento (só serviços) são copiadas e deixam de ser usadas.
 const memCols = db.prepare("PRAGMA table_info(das_memoria)").all().map((c) => c.name);
-for (const col of ["atual_faturamento", "anterior_faturamento"]) {
+for (const col of ["atual_faturamento", "anterior_faturamento", "atual_fat_servicos", "atual_fat_saidas", "anterior_fat_servicos", "anterior_fat_saidas"]) {
   if (!memCols.includes(col)) db.exec(`ALTER TABLE das_memoria ADD COLUMN ${col} REAL`);
+}
+if (!memCols.includes("atual_fat_servicos")) {
+  db.exec("UPDATE das_memoria SET atual_fat_servicos = atual_faturamento, anterior_fat_servicos = anterior_faturamento");
 }
 
 module.exports = db;

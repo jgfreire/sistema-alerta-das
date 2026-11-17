@@ -7,6 +7,8 @@
   const $ = (id) => document.getElementById(id);
   const brl = (n) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
   // Faturamento ausente (sem relatório) aparece em branco, nunca como zero.
+  // Variação em % com sinal (queda = negativa); "—" quando não dá para calcular (mês anterior zerado).
+  const pctTxt = (p) => (p == null ? "—" : (p > 0 ? "+" : "") + p.toLocaleString("pt-BR") + "%");
   const fatTxt = (d) => (d.faturamento == null ? "" : brl(d.faturamento));
 
   // Lista acumulada: { arquivo, dados } ou { arquivo, erro }. `vistos` evita ler o mesmo arquivo duas vezes.
@@ -48,13 +50,48 @@
 
   function renderLista() {
     const ok = itens.filter((i) => i.dados).length;
-    const fat = itens.filter((i) => i.dados && i.dados.tipo === "faturamento").length;
+    const nDas = itens.filter((i) => i.dados && i.dados.tipo === "das").length;
+    const nVen = itens.filter((i) => i.dados && i.dados.fonte === "saidas").length;
+    const nSer = itens.filter((i) => i.dados && i.dados.fonte === "servicos").length;
     const ruins = itens.filter((i) => i.erro);
     $("files-summary").textContent = itens.length
-      ? `${itens.length} arquivo(s): ${ok - fat} DAS e ${fat} relatório(s) de faturamento lidos com sucesso, ${ruins.length} com problema.`
+      ? `${itens.length} arquivo(s): ${nDas} DAS, ${nVen} relatório(s) de vendas (saídas) e ${nSer} de serviços lidos com sucesso, ${ruins.length} com problema.`
       : "Nenhum arquivo selecionado";
+    renderPrevia();
     $("file-list").innerHTML = ruins.map((i) => `<div class="bad">${esc(i.arquivo)} — ${esc(i.erro)}</div>`).join("");
     $("btn-analisar").disabled = lendo || ok === 0;
+  }
+
+  // Conferência do que foi lido, antes de analisar: uma linha por empresa e mês, com o valor lido de
+  // cada tipo de documento. "—" = não enviado. O faturamento é a soma de vendas e serviços do que existe.
+  function renderPrevia() {
+    const el = $("preview");
+    const linhas = new Map();
+    for (const i of itens) {
+      if (!i.dados) continue;
+      const d = i.dados;
+      const k = d.cnpj + "|" + (d.ano * 12 + d.mes);
+      if (!linhas.has(k)) linhas.set(k, { cnpj: d.cnpj, ano: d.ano, mes: d.mes, empresa: "", das: [], saidas: [], servicos: [], dev: 0 });
+      const l = linhas.get(k);
+      if (d.tipo === "das") { l.empresa = d.empresa; l.das.push(d.valor); }
+      else if (d.fonte === "saidas") { l.saidas.push(d.valor); l.dev += d.devolucoes || 0; }
+      else l.servicos.push(d.valor);
+    }
+    if (!linhas.size) { el.innerHTML = ""; return; }
+    const cel = (vals) => {
+      const u = [...new Set(vals)];
+      if (!u.length) return '<td class="num">—</td>';
+      return u.length === 1 ? `<td class="num">${brl(u[0])}</td>` : `<td class="num bad">${u.map(brl).join(" / ")} (valores diferentes)</td>`;
+    };
+    const lista = [...linhas.values()].sort((a, b) => a.cnpj.localeCompare(b.cnpj) || (a.ano * 12 + a.mes) - (b.ano * 12 + b.mes));
+    const corpo = lista.map((l) => {
+      const v = [...new Set(l.saidas)], s = [...new Set(l.servicos)];
+      const total = v.length > 1 || s.length > 1 ? null : (v.length || s.length ? (v[0] || 0) + (s[0] || 0) : null);
+      return `<tr><td>${esc(l.empresa || "—")}</td><td>${esc(l.cnpj)}</td><td>${CF.das.fmtComp(l)}</td>${cel(l.das)}${cel(l.saidas)}<td class="num">${l.dev ? brl(l.dev) : "—"}</td>${cel(l.servicos)}<td class="num">${total == null ? "—" : brl(Math.round(total * 100) / 100)}</td></tr>`;
+    }).join("");
+    el.innerHTML = `<h3>Conferência do que foi lido</h3>
+      <div class="scroll"><table class="das-result"><thead><tr><th>Empresa</th><th>CNPJ</th><th>Competência</th><th>DAS</th><th>Vendas (saídas)</th><th>Devoluções (fora do faturamento)</th><th>Serviços</th><th>Faturamento (vendas + serviços)</th></tr></thead><tbody>${corpo}</tbody></table></div>
+      <p class="slot-status">O faturamento só vale para o mês que tiver DAS (enviado agora ou já guardado na memória). Mês sem relatório fica em branco.</p>`;
   }
 
   async function adicionarArquivos(fileList) {
@@ -152,8 +189,8 @@
         <td>${esc(r.empresa)}</td>
         <td>${CF.das.fmtComp(r.anterior)}</td><td class="num">${brl(r.anterior.valor)}</td><td class="num">${fatTxt(r.anterior)}</td>
         <td>${CF.das.fmtComp(r.atual)}</td><td class="num">${brl(r.atual.valor)}</td><td class="num">${fatTxt(r.atual)}</td>
-        <td class="num">${brl(r.diferenca)}</td>
-        <td class="num">${r.alerta.pct === Infinity ? "—" : r.alerta.pct.toLocaleString("pt-BR") + "%"}</td>
+        <td class="num">${brl(r.varImposto.valor)}</td><td class="num">${pctTxt(r.varImposto.pct)}</td>
+        <td class="num">${r.varFat ? brl(r.varFat.valor) : ""}</td><td class="num">${r.varFat ? pctTxt(r.varFat.pct) : ""}</td>
       </tr>`).join("");
 
     const pend = pendencias.length ? `
@@ -170,8 +207,9 @@
         <div class="chip verde">${resumo["Normalidade"]}<small>Normalidade (verde)</small></div>
         <div class="chip cinza">${resumo.pendencias}<small>Pendências</small></div>
       </div>
+      <p class="slot-status">Variações sempre sobre o mês anterior (queda = negativa). A cor do alerta vem só da variação do imposto (DAS); a do faturamento é informativa.</p>
       ${resultados.length ? `<div class="scroll"><table class="das-result">
-        <thead><tr><th>Alerta</th><th>Empresa</th><th>Comp. anterior</th><th>Valor anterior</th><th>Faturamento anterior</th><th>Comp. atual</th><th>Valor atual</th><th>Faturamento atual</th><th>Variação (R$)</th><th>Variação (%)</th></tr></thead>
+        <thead><tr><th>Alerta</th><th>Empresa</th><th>Comp. anterior</th><th>Valor anterior</th><th>Faturamento anterior</th><th>Comp. atual</th><th>Valor atual</th><th>Faturamento atual</th><th>Variação do imposto (R$)</th><th>Variação do imposto (%)</th><th>Variação do faturamento (R$)</th><th>Variação do faturamento (%)</th></tr></thead>
         <tbody>${linhas}</tbody></table></div>` : "<p>Nenhum cliente pôde ser comparado.</p>"}
       ${pend}`;
 
@@ -220,25 +258,26 @@
     // Aba 1: um cliente por linha. O alerta fica na primeira coluna, escrito e colorido.
     const ws = wb.addWorksheet("Alertas");
     cabecalho(ws,
-      ["Alerta", "Empresa", "CNPJ", "Competência (anterior)", "Valor total (anterior)", "Faturamento (anterior)", "Competência (atual)", "Valor total (atual)", "Faturamento (atual)", "Variação (R$)", "Variação (%)", "Observação"],
-      [22, 42, 21, 15, 18, 18, 15, 18, 18, 16, 13, 48]);
+      ["Alerta", "Empresa", "CNPJ", "Competência (anterior)", "Valor total (anterior)", "Faturamento (anterior)", "Competência (atual)", "Valor total (atual)", "Faturamento (atual)", "Variação do imposto (R$)", "Variação do imposto (%)", "Variação do faturamento (R$)", "Variação do faturamento (%)", "Observação"],
+      [22, 42, 21, 15, 18, 18, 15, 18, 18, 18, 16, 20, 18, 48]);
     for (const r of analise.resultados) {
       // Sem relatório de faturamento a célula fica vazia (null), nunca zero.
       const row = ws.addRow([
         r.alerta.texto, r.empresa, r.cnpj,
         CF.das.fmtComp(r.anterior), r.anterior.valor, r.anterior.faturamento == null ? null : r.anterior.faturamento,
         CF.das.fmtComp(r.atual), r.atual.valor, r.atual.faturamento == null ? null : r.atual.faturamento,
-        r.diferenca, r.alerta.pct === Infinity ? "—" : r.alerta.pct / 100,
+        r.varImposto.valor, r.varImposto.pct == null ? "—" : r.varImposto.pct / 100,
+        r.varFat ? r.varFat.valor : null, r.varFat ? (r.varFat.pct == null ? "—" : r.varFat.pct / 100) : null,
         r.observacao || ""
       ]);
       const a = row.getCell(1);
       a.fill = FILL(CORES[r.alerta.cor]);
       a.font = { bold: true, color: { argb: CORES_TEXTO[r.alerta.cor] } };
-      [5, 6, 8, 9, 10].forEach((c) => { row.getCell(c).numFmt = '"R$" #,##0.00'; });
-      row.getCell(11).numFmt = "0.00%";
+      [5, 6, 8, 9, 10, 12].forEach((c) => { row.getCell(c).numFmt = '"R$" #,##0.00'; });
+      [11, 13].forEach((c) => { row.getCell(c).numFmt = "+0.00%;-0.00%;0.00%"; });
       [4, 7].forEach((c) => { row.getCell(c).alignment = { horizontal: "center" }; });
     }
-    ws.autoFilter = { from: "A1", to: "L1" };
+    ws.autoFilter = { from: "A1", to: "N1" };
 
     // Aba 2: o que ficou de fora e por quê.
     const wp = wb.addWorksheet("Pendências");

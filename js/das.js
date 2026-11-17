@@ -50,40 +50,74 @@
     return { cnpj, empresa, ano, mes, valor };
   }
 
-  // Relatório "ACOMPANHAMENTO DE SERVIÇOS" (faturamento do mês). Devolve { cnpj, ano, mes, valor }.
-  // O faturamento é o "Valor Contábil" da linha "Total Geral". O leitor de PDF entrega as colunas
-  // fora de ordem (o Valor Contábil vem depois do "Tipo", ex.: "Total Geral 0,00 0,00 23.000,00 0,00 ISS 23.000,00"),
-  // por isso o valor é o que vem logo depois do tipo (ISS, ICMS...). Se não houver exatamente um, não chuta.
-  function parseFaturamentoText(raw) {
+  // Relatórios da Domínio que compõem o faturamento do mês:
+  //  - "ACOMPANHAMENTO DE SERVIÇOS" (fonte "servicos");
+  //  - "ACOMPANHAMENTO DE SAÍDAS" (fonte "saidas", o relatório de vendas).
+  // O valor lido é o "Valor Contábil" da linha "Total Geral". Nas saídas, as linhas de devolução
+  // (acumulador com "DEV" no nome) NÃO entram no faturamento e são descontadas do Total Geral.
+  // O leitor de PDF entrega as colunas fora de ordem (o Valor Contábil vem logo depois do "Tipo",
+  // ex.: "Total Geral 0,00 0,00 23.000,00 0,00 ISS 23.000,00"), por isso o valor é o que vem depois
+  // do tipo do imposto. Cada relatório só é aceito se a soma dos acumuladores bater com o Total Geral;
+  // qualquer dúvida vira erro (Pendências) e nunca um valor chutado.
+  const TIPOS_IMPOSTO = "ICMS|ISSQN|ISS|IPI|PIS|COFINS|IRRF|CSLL|INSS|IRPJ";
+
+  function parseRelatorioDominio(raw) {
     const text = semAcento(String(raw || "")).replace(/\s+/g, " ");
-    if (!/ACOMPANHAMENTO DE SERVICOS/i.test(text)) {
-      throw new Error("O arquivo não parece ser o relatório de faturamento (Acompanhamento de Serviços).");
-    }
+    let fonte;
+    if (/ACOMPANHAMENTO DE SERVICOS/i.test(text)) fonte = "servicos";
+    else if (/ACOMPANHAMENTO DE SAIDAS/i.test(text)) fonte = "saidas";
+    else throw new Error("O arquivo não parece ser um relatório de faturamento (Acompanhamento de Serviços ou de Saídas).");
+    const nomeRel = fonte === "servicos" ? "serviços" : "saídas (vendas)";
 
     const cnpjM = text.match(/\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}/);
-    if (!cnpjM) throw new Error("CNPJ não encontrado no relatório de faturamento.");
+    if (!cnpjM) throw new Error("CNPJ não encontrado no relatório de " + nomeRel + ".");
 
-    const perM = text.match(/Periodo:\s*(\d{2})\/(\d{2})\/(\d{4})\s+ate\s+(\d{2})\/(\d{2})\/(\d{4})/i);
-    if (!perM) throw new Error("Período não encontrado no relatório de faturamento.");
+    // O período aparece como "01/08/2026 até 31/08/2026"; a ordem dos rótulos varia entre relatórios.
+    const perM = text.match(/(\d{2})\/(\d{2})\/(\d{4})\s+ate\s+(\d{2})\/(\d{2})\/(\d{4})/i);
+    if (!perM) throw new Error("Período não encontrado no relatório de " + nomeRel + ".");
     if (perM[2] !== perM[5] || perM[3] !== perM[6]) {
-      throw new Error("O relatório de faturamento cobre mais de um mês (" + perM[1] + "/" + perM[2] + "/" + perM[3] + " até " + perM[4] + "/" + perM[5] + "/" + perM[6] + "). Gere um relatório por mês.");
+      throw new Error("O relatório de " + nomeRel + " cobre mais de um mês (" + perM[1] + "/" + perM[2] + "/" + perM[3] + " até " + perM[4] + "/" + perM[5] + "/" + perM[6] + "). Gere um relatório por mês.");
     }
 
     const i = text.toLowerCase().lastIndexOf("total geral");
-    if (i < 0) throw new Error("Linha \"Total Geral\" não encontrada no relatório de faturamento.");
-    const valores = [...text.slice(i).matchAll(new RegExp(String.raw`\b[A-Z]{2,}\s+` + MONEY, "g"))].map((m) => parseMoney(m[1]));
-    if (valores.length !== 1) {
-      throw new Error("Não foi possível identificar com segurança o valor do \"Total Geral\" no relatório de faturamento.");
+    if (i < 0) throw new Error("Linha \"Total Geral\" não encontrada no relatório de " + nomeRel + ".");
+    const reValor = new RegExp(String.raw`\b(?:` + TIPOS_IMPOSTO + String.raw`)\s+` + MONEY, "g");
+    const totais = [...text.slice(i).matchAll(reValor)].map((m) => parseMoney(m[1]));
+    if (totais.length !== 1) {
+      throw new Error("Não foi possível identificar com segurança o valor do \"Total Geral\" no relatório de " + nomeRel + ".");
     }
+    const total = totais[0];
 
-    return { cnpj: cnpjM[0], ano: parseInt(perM[3], 10), mes: parseInt(perM[2], 10), valor: valores[0] };
+    // Acumuladores: cada um tem um único valor contábil; a soma deve bater com o Total Geral.
+    const partes = text.slice(0, i).split(/Acumulador:\s*/i).slice(1);
+    if (!partes.length) throw new Error("Nenhum acumulador encontrado no relatório de " + nomeRel + ".");
+    let soma = 0, devolucoes = 0;
+    const avisos = [];
+    for (const p of partes) {
+      const vals = [...p.matchAll(reValor)].map((m) => parseMoney(m[1]));
+      if (vals.length !== 1) throw new Error("Não foi possível ler um dos acumuladores do relatório de " + nomeRel + ".");
+      soma += vals[0];
+      if (fonte !== "saidas") continue;
+      const nm = p.match(/^(\d+)\s*-\s*(.+?)(?=\s\d{4}\b|\s\d{1,3}(?:\.\d{3})*,\d{2}|\s\d\s|$)/);
+      const nome = nm ? nm[2].trim() : p.slice(0, 60);
+      if (/\bDEV/i.test(nome)) devolucoes += vals[0];
+      else if (!/VENDA/i.test(nome)) avisos.push("acumulador " + (nm ? nm[1] : "?") + " (" + nome + ") não é venda nem devolução e foi incluído");
+    }
+    if (Math.abs(soma - total) > 0.005) {
+      throw new Error("A soma dos acumuladores (" + fmtBRL(soma) + ") não bate com o Total Geral (" + fmtBRL(total) + ") no relatório de " + nomeRel + ".");
+    }
+    devolucoes = Math.round(devolucoes * 100) / 100;
+    const valor = Math.round((total - devolucoes) * 100) / 100;
+    if (valor < 0) throw new Error("O faturamento de " + nomeRel + " ficou negativo depois de descontar as devoluções.");
+
+    return { cnpj: cnpjM[0], fonte, ano: parseInt(perM[3], 10), mes: parseInt(perM[2], 10), valor, bruto: total, devolucoes, avisos };
   }
 
   // Descobre se o PDF é um DAS ou um relatório de faturamento. `tipo` diz qual.
   function parseDocumento(raw) {
     const text = semAcento(String(raw || ""));
-    if (/ACOMPANHAMENTO DE SERVICOS/i.test(text) && !/Arrecadacao do Simples Nacional/i.test(text)) {
-      return Object.assign({ tipo: "faturamento" }, parseFaturamentoText(raw));
+    if (/ACOMPANHAMENTO DE (SERVICOS|SAIDAS)/i.test(text) && !/Arrecadacao do Simples Nacional/i.test(text)) {
+      return Object.assign({ tipo: "faturamento" }, parseRelatorioDominio(raw));
     }
     return Object.assign({ tipo: "das" }, parseDasText(raw));
   }
@@ -103,6 +137,13 @@
 
   function fmtComp(d) { return String(d.mes).padStart(2, "0") + "/" + d.ano; }
 
+  // { valor: diferença em R$, pct: variação % sobre o mês anterior (null se o anterior for zero e o atual não) }
+  function variacao(anterior, atual) {
+    const valor = Math.round((atual - anterior) * 100) / 100;
+    const pct = anterior === 0 ? (atual === 0 ? 0 : null) : Math.round(((atual - anterior) / anterior) * 10000) / 100;
+    return { valor, pct };
+  }
+
   // Recebe dois resultados de parseDasText, valida e ordena por competência.
   function compare(a, b) {
     if (a.cnpj !== b.cnpj) {
@@ -114,13 +155,19 @@
     return {
       empresa: atu.empresa, cnpj: atu.cnpj, anterior: ant, atual: atu,
       diferenca: Math.round((atu.valor - ant.valor) * 100) / 100,
-      alerta: classify(ant.valor, atu.valor)
+      alerta: classify(ant.valor, atu.valor),
+      // Variações com sinal (queda = negativo): do imposto (DAS) e do faturamento. O faturamento só tem
+      // variação quando os dois meses têm faturamento; senão fica em branco (null), nunca zero.
+      varImposto: variacao(ant.valor, atu.valor),
+      varFat: ant.faturamento != null && atu.faturamento != null ? variacao(ant.faturamento, atu.faturamento) : null
     };
   }
 
   const ORDEM_NIVEL = { "Crítico": 0, "Atenção": 1, "Normalidade": 2 };
 
   const chave = (d) => d.ano * 12 + d.mes;
+  // Faturamento do mês = soma das fontes existentes (serviços e vendas); em branco (null) se não houver nenhuma.
+  const somaFat = (d) => (d.fatServicos == null && d.fatSaidas == null ? null : Math.round(((d.fatServicos || 0) + (d.fatSaidas || 0)) * 100) / 100);
   const fmtBRL = (n) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
   // Lote com memória. `items` = [{ arquivo, dados }] (dados = parseDasText) ou [{ arquivo, erro }].
@@ -153,7 +200,7 @@
       const pool = new Map(); // competência -> { dados, daMemoria, enviado }
       if (m) {
         for (const x of [m.atual, m.anterior]) {
-          if (x) pool.set(x.ano * 12 + x.mes, { dados: { cnpj, empresa, ano: x.ano, mes: x.mes, valor: x.valor, faturamento: x.faturamento == null ? null : x.faturamento }, daMemoria: true, enviado: false });
+          if (x) pool.set(x.ano * 12 + x.mes, { dados: { cnpj, empresa, ano: x.ano, mes: x.mes, valor: x.valor, fatServicos: x.fatServicos == null ? null : x.fatServicos, fatSaidas: x.fatSaidas == null ? null : x.fatSaidas, faturamento: null }, daMemoria: true, enviado: false });
         }
       }
 
@@ -161,7 +208,7 @@
       for (const d of docs) {
         const k = chave(d.dados);
         const ja = pool.get(k);
-        if (!ja) pool.set(k, { dados: Object.assign({}, d.dados, { faturamento: null }), daMemoria: false, enviado: true });
+        if (!ja) pool.set(k, { dados: Object.assign({}, d.dados, { fatServicos: null, fatSaidas: null, faturamento: null }), daMemoria: false, enviado: true });
         else if (ja.dados.valor === d.dados.valor) ja.enviado = true;
         else if (ja.daMemoria) conflito = "O DAS de " + fmtComp(d.dados) + " veio com valor " + fmtBRL(d.dados.valor) + ", mas a memória tem " + fmtBRL(ja.dados.valor) + " para essa competência (retificação?). Nada foi alterado: se o novo valor estiver certo, apague o cliente da memória no painel administrativo e envie de novo.";
         else conflito = "A competência " + fmtComp(d.dados) + " aparece em mais de um DAS com valores diferentes.";
@@ -169,8 +216,9 @@
       if (conflito) { pendencias.push({ arquivo: arquivos, empresa, motivo: conflito }); continue; }
 
       // Faturamento: cada relatório entra na competência do mesmo mês do DAS (enviado agora ou já guardado).
-      // Nunca se inventa valor: sem relatório, o faturamento fica em branco.
-      const obsFat = [];
+      // Por mês há duas fontes: serviços e saídas (vendas, já sem devoluções); o faturamento é a soma do que existir.
+      // Nunca se inventa valor: sem relatório, o campo fica em branco.
+      const obsFat = []; // { k: competência, texto }
       let fatAplicado = 0;
       const fatPorComp = new Map();
       for (const f of fats) {
@@ -185,19 +233,29 @@
           pendencias.push({ arquivo: lista.map((f) => f.arquivo).join(" | "), empresa, motivo: "Relatório de faturamento de " + comp + " sem o DAS dessa competência (envie o DAS junto, ou ele precisa já estar na memória). O faturamento não foi guardado." });
           continue;
         }
-        const valores = [...new Set(lista.map((f) => f.dados.valor))];
-        if (valores.length > 1) { obsFat.push("Faturamento de " + comp + ": relatórios com valores diferentes, nada foi alterado."); continue; }
-        if (alvo.dados.faturamento != null && alvo.dados.faturamento !== valores[0]) {
-          obsFat.push("Faturamento de " + comp + " atualizado: era " + fmtBRL(alvo.dados.faturamento) + ", agora " + fmtBRL(valores[0]) + ".");
+        for (const fonte of ["servicos", "saidas"]) {
+          const daFonte = lista.filter((f) => f.dados.fonte === fonte);
+          if (!daFonte.length) continue;
+          const campo = fonte === "servicos" ? "fatServicos" : "fatSaidas";
+          const nomeFonte = fonte === "servicos" ? "serviços" : "vendas";
+          const valores = [...new Set(daFonte.map((f) => f.dados.valor))];
+          if (valores.length > 1) { obsFat.push({ k, texto: "Faturamento de " + comp + " (" + nomeFonte + "): relatórios com valores diferentes, nada foi alterado." }); continue; }
+          if (alvo.dados[campo] != null && alvo.dados[campo] !== valores[0]) {
+            obsFat.push({ k, texto: "Faturamento de " + comp + " (" + nomeFonte + ") atualizado: era " + fmtBRL(alvo.dados[campo]) + ", agora " + fmtBRL(valores[0]) + "." });
+          }
+          alvo.dados[campo] = valores[0];
+          fatAplicado++;
+          const dev = daFonte[0].dados.devolucoes || 0;
+          if (dev > 0) obsFat.push({ k, texto: "Vendas de " + comp + ": devoluções de " + fmtBRL(dev) + " não entraram no faturamento." });
+          for (const av of daFonte[0].dados.avisos || []) obsFat.push({ k, texto: "Vendas de " + comp + ": " + av + "." });
         }
-        alvo.dados.faturamento = valores[0];
-        fatAplicado++;
       }
+      for (const x of pool.values()) x.dados.faturamento = somaFat(x.dados);
       if (!pool.size || (!docs.length && !fatAplicado)) continue; // nada novo para este cliente
 
       const chaves = [...pool.keys()].sort((x, y) => x - y);
       const topo = chaves.slice(-2).map((k) => pool.get(k));
-      const mesGuardado = (x) => ({ ano: x.dados.ano, mes: x.dados.mes, valor: x.dados.valor, faturamento: x.dados.faturamento == null ? null : x.dados.faturamento });
+      const mesGuardado = (x) => ({ ano: x.dados.ano, mes: x.dados.mes, valor: x.dados.valor, fatServicos: x.dados.fatServicos == null ? null : x.dados.fatServicos, fatSaidas: x.dados.fatSaidas == null ? null : x.dados.fatSaidas });
       const guardar = (par) => memoriaNova.push({
         cnpj, empresa,
         atual: mesGuardado(par[par.length - 1]),
@@ -212,7 +270,13 @@
 
       const [ant, atu] = topo;
       const r = compare(ant.dados, atu.dados);
-      const obs = [...obsFat];
+      const obs = obsFat.filter((o) => o.k === chave(ant.dados) || o.k === chave(atu.dados)).map((o) => o.texto);
+      // De onde veio o faturamento de cada mês: avisa quando só há um dos dois relatórios (pode faltar o outro).
+      for (const x of [ant, atu]) {
+        const s = x.dados.fatServicos, v = x.dados.fatSaidas;
+        if (s != null && v == null) obs.push("Faturamento de " + fmtComp(x.dados) + " só com serviços (sem relatório de vendas).");
+        if (v != null && s == null) obs.push("Faturamento de " + fmtComp(x.dados) + " só com vendas (sem relatório de serviços).");
+      }
       if (ant.daMemoria && !ant.enviado) { obs.push("Mês anterior (" + fmtComp(ant.dados) + ") veio da memória."); usaramMemoria++; }
       if (chaveDif(ant.dados, atu.dados) > 1) obs.push("Entre " + fmtComp(ant.dados) + " e " + fmtComp(atu.dados) + " há mês(es) sem DAS comparado.");
       const ignorados = chaves.slice(0, -2).map((k) => pool.get(k)).filter((x) => x.enviado);
@@ -235,5 +299,5 @@
 
   function chaveDif(a, b) { return chave(b) - chave(a); }
 
-  return { parseDasText, parseFaturamentoText, parseDocumento, classify, compare, fmtComp, analyzeBatch };
+  return { parseDasText, parseRelatorioDominio, parseDocumento, somaFat, classify, compare, fmtComp, analyzeBatch };
 });

@@ -33,6 +33,7 @@
   .alert-ok { background: #e7f5ec; color: #1e5a38; border: 1px solid #b7dfc6; border-radius: 6px; padding: 10px 14px; margin-bottom: 12px; }
   .file-list { max-height: 160px; overflow: auto; font-size: .88rem; margin-top: 10px; }
   .file-list .bad { color: #9c0006; }
+  td.bad { color: #9c0006; font-weight: 600; }
 </style>
 </head>
 <body>
@@ -52,8 +53,8 @@
   <main>
     <section id="upload-screen">
       <label class="batch-drop" id="drop" for="input-files">
-        <strong>Arraste aqui os PDFs dos DAS e os relatórios de faturamento (Acompanhamento de Serviços) ou clique para selecionar</strong>
-        <span>Pode enviar todos de uma vez, 100 clientes ou mais. O sistema agrupa pelo CNPJ e compara os dois meses mais recentes de cada cliente. O faturamento é lido do relatório do mesmo mês; sem relatório, fica em branco. Depois da primeira vez, envie só o mês novo: o mês anterior fica guardado na memória.</span>
+        <strong>Arraste aqui os PDFs dos DAS e os relatórios da Domínio (Acompanhamento de Saídas e de Serviços) ou clique para selecionar</strong>
+        <span>Pode enviar todos de uma vez, 100 clientes ou mais. O sistema agrupa pelo CNPJ e compara os dois meses mais recentes de cada cliente. O sistema identifica cada PDF pelo conteúdo. O faturamento do mês é a soma de vendas (saídas, sem devoluções) e serviços do mesmo mês; sem relatório, fica em branco. Depois da primeira vez, envie só o mês novo: o mês anterior fica guardado na memória.</span>
       </label>
       <input type="file" id="input-files" accept=".pdf" multiple hidden>
 
@@ -63,6 +64,7 @@
       </div>
       <p id="files-summary" class="slot-status">Nenhum arquivo selecionado</p>
       <div id="file-list" class="file-list"></div>
+      <div id="preview"></div>
 
       <div id="errors"></div>
 
