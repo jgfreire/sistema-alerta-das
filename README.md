@@ -16,9 +16,18 @@ Compara o valor total do DAS (Simples Nacional) de dois meses para **vários cli
 - Se um cliente tiver mais de 2 competências, compara as duas mais recentes e avisa na coluna Observação.
 - Colaboradores usam a tela principal; o administrador tem acesso a tudo (painel em `/admin`, com atalho para a tela principal).
 
+## Passar para o servidor (Windows)
+1. Instale o Node.js 22 ou mais novo no servidor.
+2. Copie a pasta do sistema para o servidor (ou clone o repositório) e **copie também o arquivo `server/.env`** do computador de origem. Ele não vai pelo GitHub, e é nele que ficam o usuário, o hash da senha e a chave do administrador. Para levar também os clientes já guardados na memória, copie `server/data/app.db`.
+3. Dê dois cliques em `Iniciar Alerta DAS.bat`. Ele confere o Node e o `.env`, instala as dependências na primeira vez e sobe o servidor.
+4. Libere no firewall do servidor a porta que o servidor usar. Os outros computadores acessam por `http://IP-DO-SERVIDOR:PORTA`.
+- **A porta é do próprio servidor:** o sistema usa a variável `PORT` (do `.env` ou da hospedagem) e não impõe nenhuma. O `.bat` só lê essa porta para abrir o navegador. O servidor escuta em todas as interfaces (`0.0.0.0`), nunca só em localhost.
+- Se faltar o `SESSION_SECRET` no `.env`, o sistema cria um sozinho (em `server/data/session.secret`), então não precisa configurar.
+- **Login:** o `.env` copiado vale como está. Se ele não tiver `REQUIRE_LOGIN=true`, o login fica desligado e qualquer pessoa da rede entra como administrador.
+
 ## Iniciar
 1. Copie `server/.env.example` para `server/.env` e preencha (use `npm run hash-password -- "senha"` dentro de `server/`).
-   - **Login:** só é exigido com `REQUIRE_LOGIN=true` no `.env`. Sem essa linha o sistema entra direto como administrador. O servidor sempre fica disponível na rede (porta 3200), não só no próprio computador.
+   - **Login:** só é exigido com `REQUIRE_LOGIN=true` no `.env`. Sem essa linha o sistema entra direto como administrador. O servidor sempre fica disponível na rede (0.0.0.0), não só no próprio computador; a porta vem de `PORT`.
    - O administrador entra com `ADMIN_USERNAME`, a senha cujo hash está em `ADMIN_PASSWORD_HASH` e a `ADMIN_ACCESS_KEY` (campo "Chave de administrador"). Colaboradores são criados no painel e entram só com usuário e senha.
 2. Em `server/`: `npm install` e `npm start`, ou use `Iniciar Alerta DAS.bat`.
-3. Acesse `http://localhost:3200` no Chrome.
+3. Acesse `http://localhost:PORTA` no Chrome (a PORTA é a do `PORT` no `.env`).

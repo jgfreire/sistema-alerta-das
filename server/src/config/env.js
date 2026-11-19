@@ -3,6 +3,7 @@
 "use strict";
 
 const path = require("node:path");
+const fs = require("node:fs");
 const crypto = require("node:crypto");
 
 try {
@@ -16,7 +17,7 @@ function required(name) {
   const value = process.env[name];
   if (!value) {
     console.error(
-      `[configuração] Variável de ambiente obrigatória ausente: ${name}. Configure o arquivo server/.env (veja server/.env.example).`
+      `[configuração] Falta ${name}. O arquivo server/.env não existe ou está incompleto. Ao passar o sistema para outro computador, copie o server/.env do computador de origem (ele não vai pelo GitHub) ou use server/.env.example como modelo.`
     );
     process.exit(1);
   }
@@ -24,21 +25,36 @@ function required(name) {
 }
 
 const NODE_ENV = process.env.NODE_ENV || "development";
+// A porta vem do ambiente do servidor (PORT no .env ou na hospedagem); o sistema não impõe uma.
+// O 3000 é só o padrão do Node quando nada foi definido.
 const PORT = parseInt(process.env.PORT || "3000", 10);
 
 const ADMIN_USERNAME = required("ADMIN_USERNAME");
 const ADMIN_PASSWORD_HASH = required("ADMIN_PASSWORD_HASH");
 const ADMIN_ACCESS_KEY = required("ADMIN_ACCESS_KEY");
 
-// Se SESSION_SECRET não estiver definido, gera um valor aleatório por processo — funciona,
-// mas invalida sessões a cada reinício do servidor. Recomenda-se definir um valor fixo em
-// produção (server/.env) para não deslogar todo mundo a cada restart/deploy.
-const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex");
-if (!process.env.SESSION_SECRET) {
-  console.warn(
-    "[configuração] SESSION_SECRET não definido — gerando um valor temporário. Defina SESSION_SECRET em server/.env para manter sessões entre reinícios do servidor."
-  );
+// SESSION_SECRET: se não vier do .env, é gerado uma vez e guardado em <pasta de dados>/session.secret
+// (fora do GitHub), assim as sessões sobrevivem a reinícios sem nenhuma configuração.
+function sessionSecret() {
+  if (process.env.SESSION_SECRET) return process.env.SESSION_SECRET;
+  const dir = process.env.DATA_DIR || path.join(__dirname, "..", "..", "data");
+  const arquivo = path.join(dir, "session.secret");
+  try {
+    const salvo = fs.readFileSync(arquivo, "utf8").trim();
+    if (salvo.length >= 32) return salvo;
+  } catch {
+    // ainda não existe: cria abaixo
+  }
+  const novo = crypto.randomBytes(32).toString("hex");
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(arquivo, novo, { mode: 0o600 });
+  } catch (err) {
+    console.warn("[configuração] Não foi possível guardar o SESSION_SECRET (" + err.message + "); as sessões serão perdidas ao reiniciar.");
+  }
+  return novo;
 }
+const SESSION_SECRET = sessionSecret();
 
 const SESSION_MAX_AGE_MINUTES = parseInt(process.env.SESSION_MAX_AGE_MINUTES || "30", 10);
 const LOGIN_MAX_ATTEMPTS = parseInt(process.env.LOGIN_MAX_ATTEMPTS || "5", 10);

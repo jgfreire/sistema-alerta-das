@@ -2,7 +2,6 @@
 setlocal
 set "PATH=C:\Program Files\nodejs;%PATH%"
 set "PROJECT_DIR=%~dp0"
-set "URL=http://localhost:3200"
 
 where node >nul 2>nul
 if errorlevel 1 (
@@ -11,11 +10,23 @@ if errorlevel 1 (
   exit /b 1
 )
 
-if not exist "%PROJECT_DIR%server\.env" (
-  echo Falta o arquivo server\.env. Copie server\.env.example para server\.env e preencha.
+node -e "process.exit(+process.versions.node.split('.')[0]>=22?0:1)"
+if errorlevel 1 (
+  echo O Node.js instalado e antigo. O Alerta DAS precisa do Node.js 22 ou mais novo.
   pause
   exit /b 1
 )
+
+if not exist "%PROJECT_DIR%server\.env" (
+  echo Falta o arquivo server\.env. Copie o server\.env do computador de origem para esta pasta ^(ele nao vai pelo GitHub^).
+  pause
+  exit /b 1
+)
+
+rem A porta e a do proprio servidor (PORT no server\.env); o .bat so le, nao define nem altera nada.
+set "PORT=3000"
+for /f "usebackq tokens=2 delims==" %%a in (`findstr /B /C:"PORT=" "%PROJECT_DIR%server\.env"`) do set "PORT=%%a"
+set "URL=http://localhost:%PORT%"
 
 if not exist "%PROJECT_DIR%server\node_modules" (
   echo Instalando dependencias, aguarde...
@@ -24,7 +35,7 @@ if not exist "%PROJECT_DIR%server\node_modules" (
   popd
 )
 
-netstat -ano | findstr /R /C:":3200 .*LISTENING" >nul
+netstat -ano | findstr /R /C:":%PORT% .*LISTENING" >nul
 if not errorlevel 1 (
   echo O servidor ja esta rodando.
   goto abrir
